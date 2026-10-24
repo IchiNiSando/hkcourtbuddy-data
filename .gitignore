@@ -1,0 +1,4 @@
+data.json
+feed.bin
+.venv/
+__pycache__/
