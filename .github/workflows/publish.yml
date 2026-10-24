@@ -1,15 +1,17 @@
 name: publish-feed
 
+# GitHub's cron is unreliable on its own (it skipped most slots on this repo), so each run
+# re-dispatches the next one ~15 min after it started. The cron is only a restart: it
+# starts the chain in the morning and revives it if it ever breaks.
 on:
   schedule:
-    # Every 15 min (at :04/:19/:34/:49, off the busy :00/:15 marks GitHub tends to drop) from 07:04 to 23:49 HKT (= 23:00-15:45 UTC). Each run also sleeps a random
-    # 20-40 s before fetching so the request times never form a fixed pattern.
-    - cron: "4,19,34,49 23 * * *"
-    - cron: "4,19,34,49 0-15 * * *"
+    - cron: "4,19,34,49 23 * * *"     # 07:04-07:49 HKT
+    - cron: "4,19,34,49 0-15 * * *"   # 08:04-23:49 HKT
   workflow_dispatch:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: publish
@@ -18,19 +20,34 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
+      - name: Guard (cron restart only if no other run is active)
+        id: guard
+        run: |
+          echo "T0=$(date +%s)" >> "$GITHUB_ENV"
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            others=$(gh run list -R "${{ github.repository }}" --workflow publish.yml --status in_progress --json databaseId -q '.[].databaseId' | grep -vx "${{ github.run_id }}" | wc -l)
+            if [ "$others" -gt 0 ]; then echo "chain is alive, skipping cron start"; echo "skip=1" >> "$GITHUB_OUTPUT"; fi
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.guard.outputs.skip != '1'
 
       - uses: actions/setup-python@v5
+        if: steps.guard.outputs.skip != '1'
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: fetcher/requirements.txt
 
       - run: pip install -r fetcher/requirements.txt
+        if: steps.guard.outputs.skip != '1'
 
       - name: Connect HK WireGuard
+        if: steps.guard.outputs.skip != '1'
         env:
           WG_CONFIG: ${{ secrets.WG_CONFIG }}
         run: |
@@ -41,19 +58,21 @@ jobs:
           sudo wg-quick up wg0
 
       - name: Random jitter (20-40 s)
-        if: github.event_name == 'schedule'
+        if: steps.guard.outputs.skip != '1'
         run: sleep $((20 + RANDOM % 21))
 
       - name: Fetch availability
+        if: steps.guard.outputs.skip != '1'
         env:
           FEED_SALT: ${{ secrets.FEED_SALT }}
         run: python fetcher/fetch.py --enc feed.bin
 
       - name: Disconnect VPN
-        if: always()
+        if: always() && steps.guard.outputs.skip != '1'
         run: sudo wg-quick down wg0 || true
 
       - name: Publish data branch
+        if: steps.guard.outputs.skip != '1'
         run: |
           mkdir /tmp/pub && cp feed.bin /tmp/pub/
           cd /tmp/pub
@@ -63,3 +82,12 @@ jobs:
           git add feed.bin
           git commit -qm "feed $(date -u +%FT%TZ)"
           git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data
+
+      - name: Chain next run (~15 min after this one started)
+        if: always() && steps.guard.outputs.skip != '1'
+        run: |
+          next=$((T0 + 900))
+          hhmm=$(TZ=Asia/Hong_Kong date -d "@$next" +%H%M)
+          if [ "$hhmm" -lt 700 ] || [ "$hhmm" -gt 2350 ]; then echo "next run $hhmm HKT is outside 07:00-23:50, chain ends"; exit 0; fi
+          now=$(date +%s); [ "$next" -gt "$now" ] && sleep $((next - now))
+          gh workflow run publish.yml -R "${{ github.repository }}"
