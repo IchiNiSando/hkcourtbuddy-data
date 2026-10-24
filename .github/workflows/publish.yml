@@ -2,10 +2,10 @@ name: publish-feed
 
 on:
   schedule:
-    # Every 15 min from 07:00 to 23:45 HKT (= 23:00-15:45 UTC). Each run also sleeps a random
+    # Every 15 min (at :04/:19/:34/:49, off the busy :00/:15 marks GitHub tends to drop) from 07:04 to 23:49 HKT (= 23:00-15:45 UTC). Each run also sleeps a random
     # 20-40 s before fetching so the request times never form a fixed pattern.
-    - cron: "*/15 23 * * *"
-    - cron: "*/15 0-15 * * *"
+    - cron: "4,19,34,49 23 * * *"
+    - cron: "4,19,34,49 0-15 * * *"
   workflow_dispatch:
 
 permissions:
