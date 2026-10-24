@@ -35,11 +35,12 @@ HEADERS = {
 }
 
 
-def get_catalog(session, fa, date, tries=3):
+def get_catalog(session, fa, date, tries=3, lang="zh-hk"):
     url = f"{BASE}/rest/facility-catalog/api/v1/publ/facilities"
     for i in range(tries):
         try:
-            r = session.get(url, params={"distCode": "", "faCode": fa, "playDate": date}, timeout=30)
+            r = session.get(url, params={"distCode": "", "faCode": fa, "playDate": date},
+                            headers={"Accept-Language": lang}, timeout=30)
             j = r.json()
             if r.status_code == 200 and str(j.get("code")) == "0" and j.get("data"):
                 return j["data"]
@@ -67,6 +68,16 @@ def parse(data, venues, dists):
                         row["hours"][hh] = row["hours"].get(hh, 0) + n
 
 
+def parse_en(data, names, dists_en):
+    """Collect official English venue / district names from an en-us response."""
+    for period in PERIODS:
+        for dist in (data.get(period) or {}).get("distList") or []:
+            dists_en[dist["distCode"]] = (dist.get("distName") or dist["distCode"]).strip()
+            for v in dist.get("venueList") or []:
+                if v.get("venueName"):
+                    names[v["venueId"]] = v["venueName"].strip()
+
+
 def encrypt_feed(payload: bytes) -> bytes:
     """gzip -> AES-256-GCM. Layout: 12-byte IV + ciphertext+tag. Key = SHA-256(SALT)."""
     iv = os.urandom(12)
@@ -92,9 +103,17 @@ def main():
 
     out = {"updatedAt": datetime.now(HK).isoformat(timespec="seconds"),
            "dates": dates, "districts": {}, "sports": {}}
-    dists, failures = {}, 0
+    dists, dists_en, failures = {}, {}, 0
     for sport, fa in SPORTS.items():
         out["sports"][sport] = {}
+        # Official English names (venue ids are stable, so first + last date is enough).
+        names_en = {}
+        for d in {dates[0], dates[-1]}:
+            try:
+                parse_en(get_catalog(s, fa, d, lang="en-us"), names_en, dists_en)
+            except Exception as e:
+                print(f"skip english names {sport} {d}: {e}", file=sys.stderr)
+            time.sleep(random.uniform(0.7, 1.6))
         for d in dates:
             venues = {}
             try:
@@ -104,6 +123,9 @@ def main():
                 failures += 1
                 print(f"skip {sport} {d}: {e}", file=sys.stderr)
                 continue
+            for v in venues.values():
+                if v["venueId"] in names_en:
+                    v["en"] = names_en[v["venueId"]]
             out["sports"][sport][d] = sorted(venues.values(), key=lambda x: x["name"] or "")
             time.sleep(random.uniform(0.7, 1.6))
 
@@ -111,6 +133,7 @@ def main():
     if failures > total // 2:
         sys.exit(f"too many failures ({failures}/{total}); keeping previous data")
     out["districts"] = dists
+    out["districtsEn"] = dists_en
     payload = json.dumps(out, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     if args.plain:
         with open(args.plain, "wb") as f:
