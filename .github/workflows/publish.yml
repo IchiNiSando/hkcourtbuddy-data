@@ -1,12 +1,10 @@
 name: publish-feed
 
-# GitHub's cron is unreliable on its own (it skipped most slots on this repo), so each run
-# re-dispatches the next one ~15 min after it started. The cron is only a restart: it
-# starts the chain in the morning and revives it if it ever breaks.
+# GitHub's cron is unreliable on its own (it skipped nearly every slot on this repo), so each
+# run re-dispatches the next one after it, 24/7. The cron is only a backup restart.
 on:
   schedule:
-    - cron: "4,19,34,49 23 * * *"     # 07:04-07:49 HKT
-    - cron: "4,19,34,49 0-15 * * *"   # 08:04-23:49 HKT
+    - cron: "4,34 * * * *"            # backup restart (skipped if a run is active)
   workflow_dispatch:
 
 permissions:
@@ -83,11 +81,11 @@ jobs:
           git commit -qm "feed $(date -u +%FT%TZ)"
           git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data
 
-      - name: Chain next run (~15 min after this one started)
+      - name: Chain next run (15 min apart by day, 30 min overnight)
         if: always() && steps.guard.outputs.skip != '1'
         run: |
-          next=$((T0 + 900))
-          hhmm=$(TZ=Asia/Hong_Kong date -d "@$next" +%H%M)
-          if [ "$hhmm" -lt 700 ] || [ "$hhmm" -gt 2350 ]; then echo "next run $hhmm HKT is outside 07:00-23:50, chain ends"; exit 0; fi
+          hour=$(TZ=Asia/Hong_Kong date +%-H)
+          if [ "$hour" -lt 7 ]; then gap=1800; else gap=900; fi
+          next=$((T0 + gap))
           now=$(date +%s); [ "$next" -gt "$now" ] && sleep $((next - now))
           gh workflow run publish.yml -R "${{ github.repository }}"
