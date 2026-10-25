@@ -20,7 +20,10 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 BASE = "https://www.smartplay.lcsd.gov.hk"
 HK = timezone(timedelta(hours=8))
-SPORTS = {"badminton": "BADC", "tabletennis": "TABT", "tennis": "TENC"}
+SPORTS = {
+    "badminton": "BADC", "tabletennis": "TABT", "tennis": "TENC",
+    "football": "FOTP", "basketball": "BASC", "squash": "SQUC", "volleyball": "VOLC",
+}
 PERIODS = ("morning", "afternoon", "evening")
 # Deterrent, not security: the page needs this salt to decrypt, so anyone reading the
 # page source can too. It only stops casual copy/paste scraping of the feed.
