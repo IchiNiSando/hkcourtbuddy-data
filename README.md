@@ -5,7 +5,7 @@ availability, encrypts it, and publishes one file, `feed.bin`, to the `data` bra
 
 ```
 GitHub Actions (this repo, public, free minutes)
-  └─ every ~15 min (30 min overnight)  fetcher/fetch.py  ──►  data branch: feed.bin
+  └─ hourly                            fetcher/fetch.py  ──►  data branch: feed.bin
                                                                    │
         hkcourtbuddy page (private repo, Vercel)  ◄── reads ───────┤
         sandolife-rss court-digest (Telegram)     ◄── reads ───────┘
@@ -13,9 +13,9 @@ GitHub Actions (this repo, public, free minutes)
 
 ## How it runs
 
-`.github/workflows/publish.yml` is a self-dispatching chain: each run waits until 15 minutes (30 overnight) after
+`.github/workflows/publish.yml` is a self-dispatching chain: each run waits until 60 minutes after
 it started, then starts the next run with `gh workflow run`. GitHub's own `cron` skips most slots on this repo, so
-the cron (`4,34 * * * *`) is only a backup that restarts the chain; it does nothing if a run is already active.
+the cron (`4 * * * *`) is only a backup that restarts the chain; it does nothing if a run is already active.
 
 Each run: connect to a Hong Kong WireGuard exit → random 20–40 s jitter → fetch 7 sports × 8 dates (+ English
 names) → gzip → AES-256-GCM encrypt → force-push `feed.bin` to the `data` branch (no history kept).

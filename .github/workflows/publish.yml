@@ -4,7 +4,7 @@ name: publish-feed
 # run re-dispatches the next one after it, 24/7. The cron is only a backup restart.
 on:
   schedule:
-    - cron: "4,34 * * * *"            # backup restart (skipped if a run is active)
+    - cron: "4 * * * *"               # backup restart (skipped if a run is active)
   workflow_dispatch:
 
 permissions:
@@ -18,7 +18,7 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 70               # the chain step sleeps until T0 + 60 min
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -81,11 +81,10 @@ jobs:
           git commit -qm "feed $(date -u +%FT%TZ)"
           git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data
 
-      - name: Chain next run (15 min apart by day, 30 min overnight)
+      - name: Chain next run (hourly)
         if: always() && steps.guard.outputs.skip != '1'
         run: |
-          hour=$(TZ=Asia/Hong_Kong date +%-H)
-          if [ "$hour" -lt 7 ]; then gap=1800; else gap=900; fi
+          gap=3600
           next=$((T0 + gap))
           now=$(date +%s); [ "$next" -gt "$now" ] && sleep $((next - now))
           gh workflow run publish.yml -R "${{ github.repository }}"
