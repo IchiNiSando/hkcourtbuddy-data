@@ -59,11 +59,21 @@ jobs:
         if: steps.guard.outputs.skip != '1'
         run: sleep $((20 + RANDOM % 21))
 
+      # Up to 3 attempts, a minute apart: a transient SmartPLAY/VPN hiccup shouldn't cost an hour.
+      # PREV_FEED_URL lets the fetcher keep the previous values for any sport/date that still fails.
       - name: Fetch availability
+        id: fetch
         if: steps.guard.outputs.skip != '1'
         env:
           FEED_SALT: ${{ secrets.FEED_SALT }}
-        run: python fetcher/fetch.py --enc feed.bin
+          PREV_FEED_URL: https://raw.githubusercontent.com/${{ github.repository }}/data/feed.bin
+        run: |
+          for attempt in 1 2 3; do
+            if python fetcher/fetch.py --enc feed.bin; then exit 0; fi
+            echo "fetch attempt $attempt failed"
+            [ "$attempt" -lt 3 ] && sleep 60
+          done
+          exit 1
 
       - name: Disconnect VPN
         if: always() && steps.guard.outputs.skip != '1'
@@ -81,10 +91,11 @@ jobs:
           git commit -qm "feed $(date -u +%FT%TZ)"
           git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data
 
-      - name: Chain next run (hourly)
+      - name: Chain next run (hourly; 10 min after a failed fetch)
         if: always() && steps.guard.outputs.skip != '1'
         run: |
           gap=3600
+          if [ "${{ steps.fetch.outcome }}" != "success" ]; then gap=600; fi
           next=$((T0 + gap))
           now=$(date +%s); [ "$next" -gt "$now" ] && sleep $((next - now))
           gh workflow run publish.yml -R "${{ github.repository }}"

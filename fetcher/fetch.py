@@ -28,6 +28,7 @@ PERIODS = ("morning", "afternoon", "evening")
 # Deterrent, not security: the page needs this salt to decrypt, so anyone reading the
 # page source can too. It only stops casual copy/paste scraping of the feed.
 SALT = os.environ.get("FEED_SALT", "")
+PREV_FEED_URL = os.environ.get("PREV_FEED_URL", "")  # previously published feed.bin, to carry forward
 HEADERS = {
     "Channel": "INTERNET",
     "Accept": "application/json",
@@ -88,6 +89,29 @@ def encrypt_feed(payload: bytes) -> bytes:
     return iv + AESGCM(key).encrypt(iv, gzip.compress(payload, 9), None)
 
 
+def decrypt_feed(blob: bytes) -> dict:
+    """Inverse of encrypt_feed."""
+    key = hashlib.sha256(SALT.encode()).digest()
+    return json.loads(gzip.decompress(AESGCM(key).decrypt(blob[:12], blob[12:], None)))
+
+
+def load_previous():
+    """The feed published last time (PREV_FEED_URL), or None.
+
+    A sport/date that fails to fetch keeps its previous value instead of leaving a gap that
+    the page would show as "no data".
+    """
+    if not PREV_FEED_URL:
+        return None
+    try:
+        r = requests.get(PREV_FEED_URL, timeout=30)
+        r.raise_for_status()
+        return decrypt_feed(r.content)
+    except Exception as e:
+        print(f"no previous feed to carry forward: {e}", file=sys.stderr)
+        return None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--enc", default="feed.bin", help="encrypted feed the page loads")
@@ -107,6 +131,8 @@ def main():
     out = {"updatedAt": datetime.now(HK).isoformat(timespec="seconds"),
            "dates": dates, "districts": {}, "sports": {}}
     dists, dists_en, failures = {}, {}, 0
+    previous = load_previous()
+    carried = []
     for sport, fa in SPORTS.items():
         out["sports"][sport] = {}
         # Official English names (venue ids are stable, so first + last date is enough).
@@ -125,6 +151,10 @@ def main():
             except Exception as e:
                 failures += 1
                 print(f"skip {sport} {d}: {e}", file=sys.stderr)
+                old = ((previous or {}).get("sports", {}).get(sport) or {}).get(d)
+                if old:
+                    out["sports"][sport][d] = old
+                    carried.append(f"{sport} {d}")
                 continue
             for v in venues.values():
                 if v["venueId"] in names_en:
@@ -137,6 +167,13 @@ def main():
         sys.exit(f"too many failures ({failures}/{total}); keeping previous data")
     out["districts"] = dists
     out["districtsEn"] = dists_en
+    if carried:
+        out["carried"] = carried  # entries kept from the previous feed because their fetch failed
+        # Districts are only learned from successful responses; keep the earlier ones too.
+        for key, got in (("districts", dists), ("districtsEn", dists_en)):
+            for code, name in ((previous or {}).get(key) or {}).items():
+                got.setdefault(code, name)
+        print(f"carried forward {len(carried)} entries from the previous feed", file=sys.stderr)
     payload = json.dumps(out, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     if args.plain:
         with open(args.plain, "wb") as f:

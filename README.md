@@ -20,6 +20,14 @@ the cron (`4 * * * *`) is only a backup that restarts the chain; it does nothing
 Each run: connect to a Hong Kong WireGuard exit → random 20–40 s jitter → fetch 7 sports × 8 dates (+ English
 names) → gzip → AES-256-GCM encrypt → force-push `feed.bin` to the `data` branch (no history kept).
 
+The page must never come up empty, so every layer keeps the last good data:
+- The fetch step tries up to 3 times (a minute apart). If it still fails, nothing is published (the previous
+  `feed.bin` stays) and the next run starts 10 minutes later instead of an hour.
+- A sport/date that fails while the rest succeed keeps its value from the previous feed (`PREV_FEED_URL`); the feed lists
+  those entries in `carried`. If more than half the requests fail, the run aborts and publishes nothing.
+- The page keeps the last good feed in `localStorage`, paints from it immediately, and falls back to it when the feed
+  can't be loaded or comes back empty.
+
 Sports and their SmartPLAY `faCode`s are in `fetcher/fetch.py` (`SPORTS`). Add a sport there and in the page's
 `SPORTS` list.
 
