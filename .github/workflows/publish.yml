@@ -18,7 +18,7 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 30               # a run sleeps until T0 + 15 min; retries can take up to ~14 min
+    timeout-minutes: 30               # a run sleeps until T0 + 10 min; retries can overrun it
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -91,10 +91,10 @@ jobs:
           git commit -qm "feed $(date -u +%FT%TZ)"
           git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data
 
-      - name: Chain next run (every 15 min; 5 min after a failed fetch)
+      - name: Chain next run (every 10 min; 5 min after a failed fetch)
         if: always() && steps.guard.outputs.skip != '1'
         run: |
-          gap=900
+          gap=600
           if [ "${{ steps.fetch.outcome }}" != "success" ]; then gap=300; fi
           next=$((T0 + gap))
           now=$(date +%s); [ "$next" -gt "$now" ] && sleep $((next - now))

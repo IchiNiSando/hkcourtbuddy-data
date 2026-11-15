@@ -5,7 +5,7 @@ availability, encrypts it, and publishes one file, `feed.bin`, to the `data` bra
 
 ```
 GitHub Actions (this repo, public, free minutes)
-  └─ every 15 min                      fetcher/fetch.py  ──►  data branch: feed.bin
+  └─ every 10 min                      fetcher/fetch.py  ──►  data branch: feed.bin
                                                                    │
         hkcourtbuddy page (private repo, Vercel)  ◄── reads ───────┤
         sandolife-rss court-digest (Telegram)     ◄── reads ───────┘
@@ -13,7 +13,7 @@ GitHub Actions (this repo, public, free minutes)
 
 ## How it runs
 
-`.github/workflows/publish.yml` is a self-dispatching chain: each run waits until 15 minutes after
+`.github/workflows/publish.yml` is a self-dispatching chain: each run waits until 10 minutes after
 it started, then starts the next run with `gh workflow run`. GitHub's own `cron` skips most slots on this repo, so
 the cron (`4 * * * *`) is only a backup that restarts the chain; it does nothing if a run is already active.
 
@@ -22,7 +22,7 @@ names) → gzip → AES-256-GCM encrypt → force-push `feed.bin` to the `data` 
 
 The page must never come up empty, so every layer keeps the last good data:
 - The fetch step tries up to 3 times (a minute apart). If it still fails, nothing is published (the previous
-  `feed.bin` stays) and the next run starts 5 minutes later instead of 15.
+  `feed.bin` stays) and the next run starts 5 minutes later instead of 10.
 - A sport/date that fails while the rest succeed keeps its value from the previous feed (`PREV_FEED_URL`); the feed lists
   those entries in `carried`. If more than half the requests fail, the run aborts and publishes nothing.
 - The page keeps the last good feed in `localStorage`, paints from it immediately, and falls back to it when the feed
