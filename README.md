@@ -28,6 +28,11 @@ The page must never come up empty, so every layer keeps the last good data:
 - The page keeps the last good feed in `localStorage`, paints from it immediately, and falls back to it when the feed
   can't be loaded or comes back empty.
 
+`.github/workflows/watchdog.yml` is a second, independent safety net: every 5 minutes it checks the age of the
+published feed and, if it is older than 25 minutes and no `publish-feed` run is active, starts one. The chain restarts
+itself by dispatching its next run, so one lost job (a runner shutdown once stalled the feed for four hours) would
+otherwise stop it until GitHub's unreliable cron happened to fire.
+
 Sports and their SmartPLAY `faCode`s are in `fetcher/fetch.py` (`SPORTS`). Add a sport there and in the page's
 `SPORTS` list.
 

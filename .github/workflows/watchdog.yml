@@ -1,0 +1,47 @@
+name: watchdog
+
+# publish.yml keeps itself alive by dispatching its own next run, so a single lost job (a runner
+# shutdown mid-sleep once left the feed stale for four hours) stops the chain, and GitHub's own cron
+# is too unreliable to restart it quickly. This is a second, independent chance: every 5 minutes it
+# checks how old the published feed is and, if it is stale and no publish run is active, starts one.
+# Public repo, so these short runs are free.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+# Separate from publish.yml's group so this never queues behind a sleeping publish run.
+concurrency:
+  group: watchdog
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      GH_TOKEN: ${{ github.token }}
+      STALE_AFTER_SECONDS: "1500"   # 25 min: a healthy 10-min chain is never older than ~17 min
+    steps:
+      - name: Restart the publish chain if the feed is stale
+        run: |
+          repo="${{ github.repository }}"
+          last=$(gh api "repos/$repo/commits/data" --jq '.commit.committer.date')
+          age=$(( $(date +%s) - $(date -d "$last" +%s) ))
+          echo "feed last published $last (${age}s ago, restart threshold ${STALE_AFTER_SECONDS}s)"
+          if [ "$age" -lt "$STALE_AFTER_SECONDS" ]; then
+            echo "feed is fresh, nothing to do"
+            exit 0
+          fi
+          active=$(gh run list -R "$repo" --workflow publish.yml --json status \
+            --jq '[.[] | select(.status=="in_progress" or .status=="queued" or .status=="pending" or .status=="waiting")] | length')
+          if [ "$active" -gt 0 ]; then
+            echo "feed is stale but $active publish run(s) are active, leaving them to finish"
+            exit 0
+          fi
+          echo "feed is stale and no publish run is active: restarting the chain"
+          gh workflow run publish.yml -R "$repo"
